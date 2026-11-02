@@ -130,6 +130,8 @@ pub struct Game {
     /// Solo practice: the local player controls Red; Blue has no human
     /// player and Blue's goalie wanders at random.
     pub practice_mode: bool,
+    /// Ticks in a row the two skaters have collided; see `update_running`.
+    touching_ticks: u32,
 }
 
 impl Game {
@@ -159,6 +161,7 @@ impl Game {
             },
             palette: Palette::default(),
             practice_mode,
+            touching_ticks: 0,
         }
     }
 
@@ -192,7 +195,15 @@ impl Game {
         }
 
         if !self.practice_mode {
-            if let Some((a, b)) = are_colliding(&self.red_data.player, &self.blue_data.player) {
+            let collided = are_colliding(&self.red_data.player, &self.blue_data.player);
+            // Two skaters can lock together for good: when they touch after
+            // every move, the collision puts both back where they were and
+            // averages their velocities, so neither can get away (also when
+            // one rests just past the boards and the bounce pushes it into
+            // the other). After a few ticks in a row, push them apart, once
+            // the collision below has settled their velocities.
+            self.touching_ticks = if collided.is_some() { self.touching_ticks + 1 } else { 0 };
+            if let Some((a, b)) = collided {
                 if !matches!((a, b), (ColliderType::Catcher, ColliderType::Catcher)) {
                     // inelastic_collision resets both players to previous_position()
                     // (U16Vec2), discarding sub-pixel separation, so we read the
@@ -231,6 +242,22 @@ impl Game {
                     }
                 }
             }
+        }
+
+        if !self.practice_mode && self.touching_ticks > 0 {
+            // the collision put them back where they were, which can be
+            // just past the boards: let the boards have their say again
+            for player in [&mut self.red_data.player, &mut self.blue_data.player] {
+                player.maybe_bounce_against_rect(PITCH_INNER_RECT, COFFICIENT_OF_WALL_BOUNCING);
+            }
+        }
+        if self.touching_ticks >= 3 {
+            let red = &mut self.red_data.player;
+            let blue = &mut self.blue_data.player;
+            let normal = (blue.position_float() - red.position_float()).normalize_or(Vec2::Y);
+            red.velocity -= normal * PLAYER_UNLOCK_IMPULSE;
+            blue.velocity += normal * PLAYER_UNLOCK_IMPULSE;
+            self.touching_ticks = 0;
         }
 
         for player in [&mut self.red_data.player, &mut self.blue_data.player] {

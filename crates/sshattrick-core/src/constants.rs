@@ -78,3 +78,5 @@ pub const PLAYER_PLAYER_RESTITUTION: f32 = 0.95;
 pub const PUCK_RESTITUTION: f32 = 0.75;
 pub const GOALIE_RESTITUTION: f32 = 0.8;
 pub const PLAYER_SEPARATION_IMPULSE: f32 = 0.15;
+/// Asciiverse: the push that frees two skaters locked together (game.rs).
+pub const PLAYER_UNLOCK_IMPULSE: f32 = 0.06;
