@@ -1,7 +1,8 @@
+use crate::ai::Ai;
 use crate::lobby::{
     generate_invite_code, FriendCodeState, LobbyStats, PendingPlayer, PlayerMode, FRIEND_CODE_LEN,
 };
-use crate::tui::Tui;
+use crate::tui::{Start, Tui};
 use crossterm::event::KeyCode;
 use frittura_ssh_core::TerminalEvent;
 use sshattrick_core::{AppResult, Game, GameCommand, GameSide, GameState};
@@ -48,9 +49,18 @@ async fn matchmaker(
     loop {
         select! {
             new_tui = tui_receiver.recv() => match new_tui {
-                Some(tui) => {
+                Some(mut tui) => {
                     log::info!("Player joined: {}", tui.username());
-                    players.push(PendingPlayer::new(tui));
+                    // Asciiverse: a local player can come in straight to a mode
+                    let start = tui.start.take().or(if tui.repeat_watch { Some(Start::Watch) } else { None });
+                    let mut player = PendingPlayer::new(tui);
+                    match start {
+                        Some(Start::Computer) => player.mode = PlayerMode::Computer,
+                        Some(Start::Watch) => player.mode = PlayerMode::Watching,
+                        Some(Start::Practice) => player.mode = PlayerMode::Practicing(Box::new(Game::new_practice())),
+                        None => {}
+                    }
+                    players.push(player);
                 }
                 None => return,
             },
@@ -68,6 +78,7 @@ async fn matchmaker(
                     }
                     pair_friend_codes(&mut players, &lobby_sender, &ongoing_games);
                     pair_auto_queue(&mut players, &lobby_sender, &ongoing_games);
+                    start_computer_games(&mut players, &lobby_sender, &ongoing_games);
                 }
             }
             _ = draw_ticker.tick() => {
@@ -107,6 +118,7 @@ async fn process_lobby_events(players: &mut Vec<PendingPlayer>) {
                     player.dirty = true;
                 }
                 TerminalEvent::Key(key) => {
+                    log::debug!("lobby key {} {:?} {:?}", player.tui.username(), key.code, key.modifiers);
                     if player.idle_warning.take().is_some() {
                         player.dirty = true;
                     }
@@ -128,6 +140,13 @@ async fn process_lobby_events(players: &mut Vec<PendingPlayer>) {
                                 player.mode = PlayerMode::ShowingCode(Box::new(
                                     FriendCodeState::new(generate_invite_code()),
                                 ));
+                            }
+                            // Asciiverse: the computer player
+                            KeyCode::Char('c') => player.mode = PlayerMode::Computer,
+                            KeyCode::Char('w') => player.mode = PlayerMode::Watching,
+                            KeyCode::Char('l') => {
+                                player.tui.skill = player.tui.skill.next();
+                                player.dirty = true;
                             }
                             _ => {}
                         }
@@ -264,6 +283,38 @@ fn pair_auto_queue(
     }
 }
 
+/// Asciiverse: players who asked for the computer, or to watch two
+/// computers, leave the lobby for a match of their own.
+fn start_computer_games(
+    players: &mut Vec<PendingPlayer>,
+    lobby_sender: &Sender<Tui>,
+    ongoing_games: &Arc<AtomicUsize>,
+) {
+    let mut i = 0;
+    while i < players.len() {
+        let watching = match players[i].mode {
+            PlayerMode::Computer => false,
+            PlayerMode::Watching => true,
+            _ => {
+                i += 1;
+                continue;
+            }
+        };
+        let player = players.remove(i);
+        let skill = player.tui.skill;
+        let seed = rand::random::<u64>();
+        if watching {
+            log::info!("{} watches two computers", player.tui.username());
+            let ais = vec![Ai::new(GameSide::Red, skill, seed), Ai::new(GameSide::Blue, skill, seed ^ 0x9e37)];
+            spawn_game_with(Some(player.tui), None, ais, true, lobby_sender.clone(), ongoing_games.clone());
+        } else {
+            log::info!("{} plays the computer ({})", player.tui.username(), skill.name());
+            let ais = vec![Ai::new(GameSide::Blue, skill, seed)];
+            spawn_game_with(Some(player.tui), None, ais, false, lobby_sender.clone(), ongoing_games.clone());
+        }
+    }
+}
+
 async fn redraw_players(players: &mut [PendingPlayer], stats: &LobbyStats) {
     for player in players.iter_mut() {
         let PendingPlayer {
@@ -291,6 +342,8 @@ async fn redraw_players(players: &mut [PendingPlayer], stats: &LobbyStats) {
                         last_attempt_failed: state.last_attempt_failed,
                     },
                     PlayerMode::Practicing(_) => unreachable!(),
+                    // started on the next update tick
+                    PlayerMode::Computer | PlayerMode::Watching => crate::lobby::LobbyView::Idle,
                 };
                 let _ = tui.draw_lobby(stats, view, *idle_warning);
                 *dirty = false;
@@ -310,10 +363,25 @@ fn spawn_game(
     lobby_sender: Sender<Tui>,
     ongoing_games: Arc<AtomicUsize>,
 ) {
+    spawn_game_with(Some(red_tui), Some(blue_tui), vec![], false, lobby_sender, ongoing_games);
+}
+
+/// A match where a side can be a person, the computer, or (Asciiverse)
+/// both: in a watched game the person on Red only looks on, and Esc takes
+/// them back to the lobby.
+fn spawn_game_with(
+    red_tui: Option<Tui>,
+    blue_tui: Option<Tui>,
+    mut ais: Vec<Ai>,
+    watching: bool,
+    lobby_sender: Sender<Tui>,
+    ongoing_games: Arc<AtomicUsize>,
+) {
     ongoing_games.fetch_add(1, Ordering::Relaxed);
     task::spawn(async move {
-        let mut red = Some(red_tui);
-        let mut blue = Some(blue_tui);
+        let mut red = red_tui;
+        let mut blue = blue_tui;
+        let mut last_snapshot = Instant::now();
         let mut red_warn: Option<u32> = None;
         let mut blue_warn: Option<u32> = None;
         let mut game = Game::new();
@@ -335,9 +403,18 @@ fn spawn_game(
 
             select! {
                 _ = update_ticker.tick() => {
+                    for ai in ais.iter_mut() {
+                        if let Some(cmd) = ai.step(&game, UPDATE_TIME_STEP.as_millis() as f32) {
+                            game.handle_command(ai.side, cmd);
+                        }
+                    }
                     if let Err(e) = game.update() {
                         log::error!("Error updating game: {e}");
                         break;
+                    }
+                    if last_snapshot.elapsed() >= SNAPSHOT_EVERY {
+                        last_snapshot = Instant::now();
+                        log_snapshot(&game);
                     }
                 }
                 _ = draw_ticker.tick() => {
@@ -347,7 +424,23 @@ fn spawn_game(
                     }
                 }
                 event = next_or_pending(&mut red) => {
-                    handle_event(&mut game, GameSide::Red, event, &mut red, &mut red_warn).await;
+                    if watching {
+                        // looking on: any way out goes back to the lobby
+                        if matches!(event, TerminalEvent::Quit) {
+                            if let Some(tui) = red.take() {
+                                tui.close().await;
+                            }
+                        } else if matches!(event, TerminalEvent::Key(k) if k.code == KeyCode::Esc) {
+                            if let Some(mut tui) = red.take() {
+                                tui.repeat_watch = false;
+                                if let Err(err) = lobby_sender.send(tui).await {
+                                    err.0.close().await;
+                                }
+                            }
+                        }
+                    } else {
+                        handle_event(&mut game, GameSide::Red, event, &mut red, &mut red_warn).await;
+                    }
                 }
                 event = next_or_pending(&mut blue) => {
                     handle_event(&mut game, GameSide::Blue, event, &mut blue, &mut blue_warn).await;
@@ -359,7 +452,9 @@ fn spawn_game(
 
         for (side, slot) in [(GameSide::Red, red), (GameSide::Blue, blue)] {
             if let Some(mut tui) = slot {
-                tui.record_game(winner == Some(side));
+                if !watching {
+                    tui.record_game(winner == Some(side));
+                }
                 if let Err(err) = lobby_sender.send(tui).await {
                     err.0.close().await;
                 }
@@ -401,6 +496,33 @@ async fn draw_and_push(
     Ok(())
 }
 
+const SNAPSHOT_EVERY: Duration = Duration::from_millis(500);
+
+/// Session logging (Asciiverse): the state of a match twice a second.
+fn log_snapshot(game: &Game) {
+    use sshattrick_core::traits::Body;
+    let (r, b) = (&game.red_data.player, &game.blue_data.player);
+    log::debug!(
+        "snapshot game {} state {} score {}-{} red {:.0?} v {:.3?} blue {:.0?} v {:.3?} puck {:?} possession {:?} time {}s",
+        game.id,
+        match game.state {
+            GameState::Starting { .. } => "starting",
+            GameState::Running => "running",
+            GameState::AfterGoal { .. } => "after goal",
+            GameState::Ending { .. } => "ending",
+        },
+        game.red_data.score,
+        game.blue_data.score,
+        r.position_float(),
+        r.velocity,
+        b.position_float(),
+        b.velocity,
+        game.puck.position(),
+        game.puck.possession,
+        game.timer / 1000
+    );
+}
+
 async fn handle_event(
     game: &mut Game,
     side: GameSide,
@@ -431,6 +553,7 @@ async fn handle_event(
         }
         TerminalEvent::Key(key) => {
             *own_warn = None;
+            log::debug!("game key {side:?} {:?} {:?}", key.code, key.modifiers);
             if let Some(cmd) = key_code_to_game_command(key.code) {
                 game.handle_command(side, cmd);
             }

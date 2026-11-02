@@ -12,7 +12,7 @@ const APP_IDLE_KICK: Duration = Duration::from_secs(60);
 const APP_IDLE_WARNING: Duration = Duration::from_secs(10);
 
 pub struct SshattrickGame {
-    tui_sender: mpsc::Sender<Tui>,
+    pub(crate) tui_sender: mpsc::Sender<Tui>,
 }
 
 impl SshattrickGame {

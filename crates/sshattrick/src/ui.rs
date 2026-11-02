@@ -31,7 +31,7 @@ const DISCONNECT_BANNER_Y_OFFSET: u16 = 8;
 const WIN_BANNER_WIDTH: u16 = 72;
 const WIN_BANNER_HEIGHT: u16 = 6;
 const LOBBY_OVERLAY_WIDTH: u16 = 60;
-const LOBBY_OVERLAY_HEIGHT: u16 = 24;
+const LOBBY_OVERLAY_HEIGHT: u16 = 29;
 
 fn render_side_panel(frame: &mut Frame, area: Rect, data: &GameData, controls: Option<&[&str]>) {
     let mut lines = vec![Line::from(format!("Saves {}", data.goalie.saves))];
@@ -219,6 +219,14 @@ fn palette_colors(palette: Palette) -> (Color, Color) {
     }
 }
 
+/// Asciiverse: the computer's level, and how friends on the network join
+/// (shown only to the person playing at the computer that hosts).
+pub struct LobbyExtra<'a> {
+    pub skill: &'a str,
+    pub lan_hint: Option<&'a str>,
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn render_lobby(
     frame: &mut Frame,
     username: &str,
@@ -227,6 +235,7 @@ pub fn render_lobby(
     stats: &LobbyStats,
     view: LobbyView,
     idle_warning: Option<u32>,
+    extra: &LobbyExtra,
 ) {
     let split = Layout::vertical([Constraint::Length(6), Constraint::Fill(1)]).split(frame.area());
     let (color_1, color_2) = palette_colors(Palette::Dark);
@@ -255,12 +264,14 @@ pub fn render_lobby(
         Constraint::Length(1), // 2: pad
         Constraint::Length(2), // 3: games played + won
         Constraint::Length(2), // 4: pad
-        Constraint::Length(7), // 5: view-specific block (fixed)
+        Constraint::Length(9), // 5: view-specific block (fixed)
         Constraint::Length(1), // 6: pad
         Constraint::Length(1), // 7: kick warning (empty unless within window)
         Constraint::Length(1), // 8: pad
         Constraint::Length(2), // 9: stats (connected + ongoing)
-        Constraint::Fill(1),   // 10: bottom spacer
+        Constraint::Length(1), // 10: pad
+        Constraint::Length(2), // 11: how friends join (local host only)
+        Constraint::Fill(1),   // 12: bottom spacer
     ])
     .split(area);
 
@@ -278,6 +289,8 @@ pub fn render_lobby(
         LobbyView::Idle => vec![
             Line::styled("Pick a mode:", Style::new().bold()),
             Line::raw(""),
+            Line::styled(format!("c: play the computer ({}, l: change)", extra.skill), Style::new().dim()),
+            Line::styled("w: watch two computers", Style::new().dim()),
             Line::styled("a: auto-match", Style::new().dim()),
             Line::styled("p: practice mode", Style::new().dim()),
             Line::styled("g: play with a friend (code)", Style::new().dim()),
@@ -345,4 +358,15 @@ pub fn render_lobby(
         .centered(),
         chunks[9],
     );
+
+    if let Some(hint) = extra.lan_hint {
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::styled("Friends on your network join with", Style::new().dim()),
+                Line::styled(hint.to_string(), Style::new().cyan()),
+            ])
+            .centered(),
+            chunks[11],
+        );
+    }
 }

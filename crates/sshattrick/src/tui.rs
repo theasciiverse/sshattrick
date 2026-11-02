@@ -2,6 +2,7 @@ use crate::ui;
 use crossterm::cursor::Hide;
 use crossterm::event::EnableMouseCapture;
 use crossterm::terminal::{Clear, ClearType, EnterAlternateScreen, SetTitle};
+use crate::ai::Skill;
 use crate::out::Out;
 use frittura_ssh_core::TerminalEvent;
 use ratatui::layout::Rect;
@@ -12,8 +13,25 @@ use sshattrick_core::constants::UI_SCREEN_SIZE;
 use sshattrick_core::{AppResult, Game, GameSide};
 use tokio::sync::mpsc::Receiver;
 
+/// Asciiverse: where a local player starts, skipping the lobby.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Start {
+    Computer,
+    Practice,
+    Watch,
+}
+
 #[derive(Debug)]
 pub struct Tui {
+    /// Asciiverse: a mode to go straight into on arrival
+    pub start: Option<Start>,
+    /// Asciiverse: after a watched game, watch the next (`--watch`)
+    pub repeat_watch: bool,
+    /// Asciiverse: the computer's level when this player picks it
+    pub skill: Skill,
+    /// Asciiverse: how friends on the network join this game, shown in
+    /// the lobby of the person playing at this computer
+    pub lan_hint: Option<String>,
     username: String,
     games_played: usize,
     games_won: usize,
@@ -38,6 +56,10 @@ impl Tui {
         };
         let terminal = Terminal::with_options(backend, opts)?;
         let mut tui = Self {
+            start: None,
+            repeat_watch: false,
+            skill: Skill::Normal,
+            lan_hint: None,
             username,
             games_played: 0,
             games_won: 0,
@@ -111,8 +133,11 @@ impl Tui {
             games_played,
             games_won,
             terminal,
+            skill,
+            lan_hint,
             ..
         } = self;
+        let extra = ui::LobbyExtra { skill: skill.name(), lan_hint: lan_hint.as_deref() };
         terminal.draw(|frame| {
             ui::render_lobby(
                 frame,
@@ -122,6 +147,7 @@ impl Tui {
                 stats,
                 view,
                 kick_warning_secs,
+                &extra,
             )
         })?;
         Ok(())

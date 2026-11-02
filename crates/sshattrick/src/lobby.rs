@@ -27,6 +27,10 @@ pub enum PlayerMode {
     AutoQueue,
     Practicing(Box<Game>),
     ShowingCode(Box<FriendCodeState>),
+    /// Asciiverse: asked to play the computer; leaves on the next tick
+    Computer,
+    /// Asciiverse: asked to watch two computers; leaves on the next tick
+    Watching,
 }
 
 #[derive(Debug)]
