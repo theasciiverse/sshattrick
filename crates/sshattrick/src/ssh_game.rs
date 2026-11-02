@@ -1,4 +1,5 @@
 use crate::matchmaker;
+use crate::out::Out;
 use crate::tui::Tui;
 use frittura_ssh_core::{spawn_event_converter, Credential, SshGame, SshSession};
 use sshattrick_core::constants::UI_SCREEN_SIZE;
@@ -50,7 +51,7 @@ impl SshGame for SshattrickGame {
             Some(APP_IDLE_KICK),
             Some(APP_IDLE_WARNING),
         );
-        let tui = match Tui::new(username, writer, events) {
+        let tui = match Tui::new(username, Out::Ssh(writer), events) {
             Ok(t) => t,
             Err(e) => {
                 log::error!("Tui init failed: {e}");

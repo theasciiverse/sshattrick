@@ -1,7 +1,9 @@
+pub mod ai;
 mod big_text;
 pub mod img_lines;
 mod lobby;
 mod matchmaker;
+mod out;
 mod ssh_game;
 mod tui;
 mod ui;

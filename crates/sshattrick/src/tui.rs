@@ -2,7 +2,8 @@ use crate::ui;
 use crossterm::cursor::Hide;
 use crossterm::event::EnableMouseCapture;
 use crossterm::terminal::{Clear, ClearType, EnterAlternateScreen, SetTitle};
-use frittura_ssh_core::{SshWriterProxy, TerminalEvent};
+use crate::out::Out;
+use frittura_ssh_core::TerminalEvent;
 use ratatui::layout::Rect;
 use ratatui::prelude::CrosstermBackend;
 use ratatui::text::Line;
@@ -16,14 +17,14 @@ pub struct Tui {
     username: String,
     games_played: usize,
     games_won: usize,
-    terminal: Terminal<CrosstermBackend<SshWriterProxy>>,
+    terminal: Terminal<CrosstermBackend<Out>>,
     events: Receiver<TerminalEvent>,
 }
 
 impl Tui {
     pub fn new(
         username: String,
-        writer: SshWriterProxy,
+        writer: Out,
         events: Receiver<TerminalEvent>,
     ) -> AppResult<Self> {
         let backend = CrosstermBackend::new(writer);

@@ -2802,6 +2802,7 @@ dependencies = [
  "clap",
  "crossterm",
  "frittura-ssh-core",
+ "glam",
  "image",
  "log",
  "log4rs",
