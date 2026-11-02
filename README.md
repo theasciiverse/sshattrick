@@ -1,3 +1,16 @@
+> **Play it with Asciiverse.** With [av](https://asciiverse.sh), the Asciiverse
+> client:
+>
+> ```
+> av install sshattrick
+> av play sshattrick
+> ```
+>
+> This edition also plays right in your terminal: against the computer, or
+> with a friend on your local network, who joins with plain `ssh`. Run
+> `sshattrick --help` for the options; `sshattrick --server` is the server
+> alone, as described below. The original README follows.
+
 # ssHattrick
 
 ![Watch the demo](./demo.gif)

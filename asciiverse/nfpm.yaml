@@ -1,0 +1,33 @@
+# System packages (.deb, .rpm, .apk, Arch) for ssHattrick, built by nfpm
+# from the same static binary as the av archive. The release workflow sets
+# VERSION, RELEASE (our packaging release) and ARCH (amd64 or arm64), and
+# puts the binary at stage/sshattrick.
+#
+# No .desktop file on purpose: av is the one place titles are started from,
+# so Asciiverse packages never add menu entries (asciiverse/CLAUDE.md).
+name: sshattrick
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+release: ${RELEASE}
+section: games
+priority: optional
+maintainer: Asciiverse <packages@asciiverse.sh>
+vendor: Asciiverse
+homepage: https://github.com/theasciiverse/sshattrick
+license: GPL-3.0-only
+description: |
+  1-on-1 ice hockey in the terminal.
+  Play against the computer, a friend on your local network, or anyone who
+  connects with ssh; or run it as a server. By ricott1, packaged by
+  Asciiverse.
+contents:
+  - src: stage/sshattrick
+    dst: /usr/bin/sshattrick
+    file_info: { mode: 0755 }
+  - src: LICENSE
+    dst: /usr/share/doc/sshattrick/copyright
+    file_info: { mode: 0644 }
+  - src: README.md
+    dst: /usr/share/doc/sshattrick/README.md
+    file_info: { mode: 0644 }
