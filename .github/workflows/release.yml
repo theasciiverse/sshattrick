@@ -1,3 +1,4 @@
+# Asciiverse release workflow (tag v* or run by hand with a tag)
 # Builds ssHattrick for the Asciiverse catalog and as system packages.
 #
 # For av: one archive per target, named <id>-<target>.tar.gz (Linux, macOS)
